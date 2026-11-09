@@ -1,0 +1,24 @@
+[package]
+name = "slog-redis"
+description = "Redis drain for slog-rs"
+version = "0.2.0"
+authors = ["Hannes de Jager <hdejager@bol.com>"]
+edition = "2021"
+license = "Apache-2.0"
+keywords = ["slog", "logging", "log", "redis"]
+categories = ["development-tools::debugging"]
+documentation = "https://docs.rs/slog-redis"
+homepage = "https://github.com/bolcom/unFTP/tree/master/crates/redislog"
+repository = "https://github.com/bolcom/unFTP/tree/master/crates/redislog"
+readme = "README.md"
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+r2d2 = "0.8.10"
+redis = { version = "1.8.1", features = ["r2d2"] }
+serde_json = "1.0.154"
+slog = "2.8.2"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+slog-async = "2.8.0"

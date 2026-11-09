@@ -1,0 +1,531 @@
+#
+# References:
+#  - https://github.com/marketplace/actions/get-the-latest-release-upload-url-tag-date
+#  - https://github.com/actions/upload-artifact
+#  - https://github.com/marketplace/actions/yet-another-upload-release-asset-action
+#  - https://github.com/marketplace/actions/download-a-build-artifact
+#
+
+# Its called 'build' so that the README badge displays nicely
+name: build
+
+# Update the RUST_VERSION here and in the Makefile when we upgrade
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.99.1
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  release:
+    types: [ created ]
+
+# The `release` event cannot be filtered by tag name in `on:` above.
+# unFTP releases use tags like `v0.15.2`. Crate tags such as
+# `slog-redis-v0.2.0` must not publish unFTP binaries or images.
+# Jobs that build or publish unFTP therefore require:
+#   github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+
+jobs:
+
+  get_version:
+    name: Get unFTP version
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_latest_tag.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise we get a 'fatal: No names found, cannot describe anything.' error.
+      - name: Get latest tag
+        id: get_latest_tag
+        run: |
+          tag=$(git describe --tags)
+          echo "version=$tag" >> $GITHUB_OUTPUT
+
+  format:
+    name: Check Formatting
+    runs-on: ubuntu-latest
+    if: ${{ github.ref != 'refs/heads/master' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          components: rustfmt
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+  clippy:
+    name: Run Clippy
+    runs-on: ubuntu-latest
+    if: ${{ github.ref != 'refs/heads/master' }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          components: clippy
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse-dev
+      - uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all-features --workspace -- -D warnings
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          components: clippy
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam-dev libfuse-dev
+      - name: Run tests
+        run: cargo test --verbose  --workspace --all --all-features
+      - name: Build Docs
+        run: cargo doc --all-features --workspace --no-deps
+
+  test-hack-each-feature:
+    name: Test Each Feature
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam-dev libfuse-dev
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+      - name: Run tests with each feature
+        run: cargo hack test --each-feature
+
+  test-hack-all-features:
+    name: Test All Features
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam-dev libfuse-dev
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+      - name: Run tests with all features
+        run: cargo hack test --all-features
+
+  test-hack-no-default-features:
+    name: Test No Default Features
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam-dev libfuse-dev
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+      - name: Run tests with no default features
+        run: cargo hack test --no-default-features
+
+  build-linux-gnu:
+    runs-on: ubuntu-latest
+    name: Build for Linux (GNU)
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      target: x86_64-unknown-linux-gnu
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.target }}
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libpam-dev
+      - name: Build for Linux (GNU)
+        run: cargo build --no-default-features --features gnu --release --target=${{ env.target }}
+      - name: Rename
+        run: mv target/${{ env.target }}/release/unftp target/${{ env.target }}/release/unftp_${{ env.target }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.target }}
+          path: target/${{ env.target }}/release/unftp_${{ env.target }}
+
+  build-linux-musl:
+    runs-on: ubuntu-latest
+    name: Build for Linux (MUSL)
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      target: x86_64-unknown-linux-musl
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.target }}
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build for Linux (MUSL)
+        run: RUSTFLAGS="-C target-feature=+crt-static" cargo build --no-default-features --features docker --release --target=${{ env.target }}
+      - name: Rename
+        run: mv target/${{ env.target }}/release/unftp target/${{ env.target }}/release/unftp_${{ env.target }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.target }}
+          path: target/${{ env.target }}/release/unftp_${{ env.target }}
+
+  build-linux-musl-arm:
+    runs-on: ubuntu-latest
+    name: Build for Linux (MUSL ARM64)
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      target: aarch64-unknown-linux-musl
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.target }}
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build for Linux (MUSL ARM64)
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          use-cross: true
+          args: --release --target=${{ env.target }} --no-default-features --features docker
+      - name: Rename
+        run: mv target/${{ env.target }}/release/unftp target/${{ env.target }}/release/unftp_${{ env.target }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.target }}
+          path: target/${{ env.target }}/release/unftp_${{ env.target }}
+
+  build-windows:
+    runs-on: windows-latest
+    name: Build for Windows
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      trget: x86_64-pc-windows-msvc
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - uses: ilammy/setup-nasm@v1
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.trget }}
+      - name: Build for Windows
+        run: cargo build --release --target=${{ env.trget }} --features rest_auth,jsonfile_auth
+      - name: Rename
+        run: ren "target\${{ env.trget }}\release\unftp.exe" "unftp_${{ env.trget }}.exe"
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.trget }}.exe
+          path: target/${{ env.trget }}/release/unftp_${{ env.trget }}.exe
+
+  build-macos-intel:
+    runs-on: macos-latest
+    name: Build for macOS (Intel)
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      target: x86_64-apple-darwin
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.target }}
+      - name: Build for macOS (Intel)
+        run: cargo build --release --target=${{ env.target }} --features rest_auth,jsonfile_auth,cloud_storage,azblob
+      - name: Rename
+        run: mv target/${{ env.target }}/release/unftp target/${{ env.target }}/release/unftp_${{ env.target }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.target }}
+          path: target/${{ env.target }}/release/unftp_${{ env.target }}
+
+  build-macos-arm:
+    runs-on: macos-latest
+    name: Build for macOS (ARM)
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v') }}
+    needs: get_version
+    env:
+      target: aarch64-apple-darwin
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Otherwise the code that retrieves the git version doesn't work
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          override: true
+          default: true
+          target: ${{ env.target }}
+      - name: Install Rosetta
+        if: runner.os == 'macOS' && runner.arch == 'arm64'
+        run: softwareupdate --install-rosetta --agree-to-license
+      - name: Build
+        run: cargo build --release --target=${{ env.target }} --features rest_auth,jsonfile_auth,cloud_storage,azblob
+      - name: Rename
+        run: mv target/${{ env.target }}/release/unftp target/${{ env.target }}/release/unftp_${{ env.target }}
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unftp_${{ env.target }}
+          path: target/${{ env.target }}/release/unftp_${{ env.target }}
+
+  upload-release-binaries:
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+    env:
+      file_name: unftp_${{ matrix.build }}${{ contains(matrix.build, 'windows') && '.exe' || '' }}
+      file_dir: ./${{ matrix.build }}
+    needs:
+      - build-linux-gnu
+      - build-linux-musl
+      - build-linux-musl-arm
+      - build-macos-intel
+      - build-macos-arm
+      - build-windows
+    name: Upload Release Artifacts
+    steps:
+      # For testing:
+      # - name: Gets latest created release info
+      #   id: latest_release_info
+      #   uses: jossef/action-latest-release-info@v1.2.1
+      #   env:
+      #     GITHUB_TOKEN: ${{ github.token }}
+      - name: Download
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.file_name }}
+          path: ${{ env.file_dir }}
+      - name: Calculate MD5 checksum
+        id: calculate_checksum
+        run: md5sum ${{ env.file_dir }}/${{ env.file_name }} > ${{ env.file_dir }}/${{ env.file_name }}.md5
+      - name: Upload
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}  # Testing: ${{ steps.latest_release_info.outputs.upload_url }}
+          asset_path: ${{ env.file_dir }}/${{ env.file_name }}
+          asset_name: ${{ env.file_name }}
+          asset_content_type: application/octet-stream
+      - name: Upload MD5
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.file_dir }}/${{ env.file_name }}.md5
+          asset_name: ${{ env.file_name }}.md5
+          asset_content_type: text/plain
+
+  build-docker-images:
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux-musl
+      - build-linux-musl-arm
+      - get_version
+    env:
+      BUILD_VERSION: ${{ needs.get_version.outputs.version }}
+    name: Build docker images
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Download linux musl (amd64)
+        uses: actions/download-artifact@v4
+        with:
+          name: unftp_x86_64-unknown-linux-musl
+          path: ./linux/amd64
+
+      - name: Download linux musl (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: unftp_aarch64-unknown-linux-musl
+          path: ./linux/arm64
+
+      - name: Prepare linux musl binaries
+        run: |
+          chmod +x ./linux/amd64/unftp_x86_64-unknown-linux-musl
+          chmod +x ./linux/arm64/unftp_aarch64-unknown-linux-musl
+          cp ./linux/amd64/unftp_x86_64-unknown-linux-musl ./linux/amd64/unftp
+          cp ./linux/arm64/unftp_aarch64-unknown-linux-musl ./linux/arm64/unftp
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push scratch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packaging/docker/scratch.Dockerfile.ci
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: bolcom/unftp:${{ env.BUILD_VERSION }}-scratch
+
+      - name: Build and push alpine image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packaging/docker/alpine.Dockerfile.ci
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: bolcom/unftp:${{ env.BUILD_VERSION }}-alpine
+
+      - name: Build and push alpine-debug image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./packaging/docker/alpine-debug.Dockerfile.ci
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: bolcom/unftp:${{ env.BUILD_VERSION }}-alpine-debug

@@ -1,0 +1,13 @@
+FROM rust:1.99.1-slim AS builder
+
+FROM scratch
+
+ARG TARGETARCH
+
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --chown=1010:1010 --from=builder /srv /srv
+COPY --chown=1010:1010 --chmod=755 ./linux/${TARGETARCH}/unftp /unftp
+
+VOLUME /srv
+USER 1010
+CMD ["/unftp", "-vv"]

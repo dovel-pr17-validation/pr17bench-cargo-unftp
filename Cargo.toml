@@ -1,0 +1,168 @@
+[package]
+name = "unftp"
+version = "0.15.2"
+authors = [
+  "Agoston Horvath <ahorvath@bol.com>",
+  "Dávid Kosztka <dkosztka@bol.com>",
+  "Hannes de Jager <hdejager@bol.com>",
+  "Koen Wilde <koen@chillheid.nl>",
+  "Maarten Dirkse <mdirkse@bol.com>",
+  "Steven Meunier <smeunier@bol.com>",
+  "Rob klein Gunnewiek <rkleingunnewiek@bol.com>",
+]
+edition = "2021"
+description = "When you need to FTP, but don't want to. An async, cloud orientated FTP(S) server built on libunftp"
+repository = "https://github.com/bolcom/unFTP"
+homepage = "https://unftp.rs"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["ftp", "ftps", "server", "gcs"]
+categories = ["network-programming"]
+documentation = "https://unftp.rs/server/"
+
+[workspace]
+
+[dependencies.slog-redis]
+path = "crates/redislog"
+version = "0.2.0"
+
+[dependencies.slog-google]
+path = "crates/googlelog"
+features = ["shipper"]
+version = "0.2.0"
+
+[dependencies]
+async-trait = "0.1.92"
+base64 = "0.23.1"
+clap = { version = "3.2.25", features = ["derive", "env"] }
+console-subscriber = { version = "0.5.0", optional = true }
+flate2 = "1.1.10"
+http = "1.5.0"
+hyper = { version = "1.12.0", features = ["server", "http1"] }
+http-body-util = "0.1.5"
+hyper-util = { version = "0.1.21", features = ["full"] }
+hyper-rustls = "0.27.10"
+lazy_static = "1.5.1"
+libunftp = "0.24.0"
+unftp-core = "0.1.0"
+#opendal = { version = "0.53.3", optional = true }
+opendal = { git = "https://github.com/apache/opendal.git", rev = "15e2cc098cfeb1403e526cea868c0e17382a50fa", optional = true }
+prometheus = { version = "0.14.0", features = ["process"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+slog = { version = "2.8.2", features = [
+  "max_level_trace",
+  "release_max_level_info",
+] }
+slog-async = "2.8.0"
+slog-term = "2.9.2"
+strum = { version = "0.28.0", features = ["derive"] }
+strum_macros = "0.28.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+unftp-sbe-fs = "0.4.0"
+unftp-sbe-rooter = "0.3.0"
+unftp-sbe-restrict = "0.1.5"
+unftp-sbe-gcs = { version = "0.3.1", optional = true }
+#unftp-sbe-opendal = { version = "0.4.0", optional = true }
+unftp-sbe-opendal = { git = "https://github.com/apache/opendal.git", rev = "15e2cc098cfeb1403e526cea868c0e17382a50fa", subdir="integrations/unftp-sbe", optional = true }
+unftp-sbe-iso = { version = "0.2.0", optional = true }
+unftp-auth-jsonfile = { version = "0.4.0", optional = true }
+unftp-auth-rest = { version = "0.3.1", optional = true }
+url = "2.5.8"
+rustls = "0.23.46"
+
+[target.'cfg(unix)'.dependencies]
+unftp-auth-pam = { version = "0.3.0", optional = true }
+
+[features]
+default = ["auth_rest", "sbe_gcs", "auth_jsonfile", "sbe_opendal"]
+tokio_console = ["dep:console-subscriber", "tokio/tracing"]
+
+## Storage back-end extentions
+sbe_gcs = ["dep:unftp-sbe-gcs"]
+sbe_opendal = ["dep:unftp-sbe-opendal", "dep:opendal"]
+sbe_azblob = ["sbe_opendal", "opendal/services-azblob"]
+sbe_iso = ["dep:unftp-sbe-iso"]
+
+## Auth back-end extentions
+auth_pam = ["dep:unftp-auth-pam"]
+auth_rest = ["dep:unftp-auth-rest"]
+auth_jsonfile = ["dep:unftp-auth-jsonfile"]
+
+# With this we link dynamically to libc and pam. Used to build our target x86_64-unknown-linux-gnu
+gnu = ["auth_pam", "auth_rest", "auth_jsonfile", "sbe_gcs", "sbe_opendal"]
+
+# All features able to link statically. Used to build our target x86_64-unknown-linux-musl
+musl = ["auth_rest", "sbe_gcs", "auth_jsonfile", "sbe_azblob"]
+
+# Features used in our docker builds
+docker = ["musl"]
+
+# Backward-compatible aliases (will be removed at some point)
+all_extentions = [
+  "pam_auth",
+  "rest_auth",
+  "jsonfile_auth",
+  "cloud_storage",
+  "opendal",
+  "sbe_iso",
+]
+cloud_storage = ["sbe_gcs"]
+opendal = ["sbe_opendal"]
+azblob = ["sbe_azblob"]
+pam_auth = ["auth_pam"]
+rest_auth = ["auth_rest"]
+jsonfile_auth = ["auth_jsonfile"]
+
+[build-dependencies]
+built = { version = "0.8.1", features = [
+  "cargo-lock",
+  "git2",
+  "chrono",
+  "semver",
+] }
+
+[profile.release]
+debug = false
+lto = "fat"
+codegen-units = 1
+
+[package.metadata.docs.rs]
+all-features = true
+
+[package.metadata.arch]
+arch = ["x86_64"]
+
+[package.metadata.deb]
+features = ["all_extentions"]
+section = "net"
+assets = [
+  [
+    "target/x86_64-unknown-linux-gnu/release/unftp",
+    "usr/bin/",
+    "755",
+  ],
+  [
+    "LICENSE",
+    "usr/share/doc/unftp/",
+    "644",
+  ],
+  [
+    "README.md",
+    "usr/share/doc/unftp/README",
+    "644",
+  ],
+]
+extended-description = """\
+unFTP (unftp) is a FTP(S) server written in Rust and built on top of libunftp and the Tokio asynchronous run-time. It is
+unlike your normal FTP server in that it provides:
+- Configurable Authentication (e.g. Anonymous, PAM or a JSON file).
+- Configurable storage back-ends (e.g. GCS or filesystem)
+- An HTTP server with health endpoints for use for example in Kubernetes for readiness and liveness probes.
+- Integration with Prometheus for monitoring.
+- A proxy protocol mode for use behind proxies like HA Proxy and Nginx.
+
+With unFTP, you can present RFC compliant FTP(S) to the outside world while freeing yourself to use modern APIs and
+techniques on the inside of your perimeter.
+"""
